@@ -1,0 +1,46 @@
+name: fund-arb-daily
+
+on:
+  schedule:
+    # 07:05 UTC = 15:05 北京时间（收盘后）。GitHub 定时可能延迟几分钟。
+    - cron: '5 7 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '无视交易日历强制运行（测试用）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write          # 提交 index.html / archive
+
+concurrency:
+  group: fund-arb
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -q -r requirements.txt
+
+      - name: 生成报告 + 推送飞书
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+          GH_PAGES_REPO: ${{ github.repository }}
+          FORCE: ${{ (github.event_name == 'workflow_dispatch' && inputs.force) && '--force' || '' }}
+        run: python fund_arb.py $FORCE
+
+      - name: 提交报告到仓库（触发 Pages 更新）
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "report $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
+          git push
